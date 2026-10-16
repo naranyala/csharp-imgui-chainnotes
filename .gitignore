@@ -1,0 +1,7 @@
+bin/
+obj/
+*.user
+.vs/
+.idea/
+chainnotes-imgui.ini
+imgui.ini
