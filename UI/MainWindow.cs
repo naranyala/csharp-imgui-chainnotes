@@ -20,8 +20,14 @@ public sealed class MainWindow : IDisposable
     /// <summary>Editor edits are coalesced so typing doesn't write once per keystroke.</summary>
     private const double SaveDebounceSeconds = 0.4;
 
+    private const float SidebarWidth = 260f;
+
+    /// <summary>At least ImGui's default WindowMinSize.Y (32) or the bar gets clamped.</summary>
+    private const float StatusHeight = 32f;
+
     private Note? _pendingSave;
     private double _timeSinceEdit;
+    private int _drawnFrames;
 
     public MainWindow(INoteStore store)
     {
@@ -53,11 +59,22 @@ public sealed class MainWindow : IDisposable
 
     public void Draw()
     {
+        _drawnFrames++;
+
+        DrawShortcuts();
         DrawMenuBar();
 
-        DrawNotesList();
-        DrawEditor();
-        DrawStats();
+        // FirstUseEver placement must not run on frame 1: the viewport's
+        // WorkPos/WorkSize don't yet account for the main menu bar (the
+        // adjustment lands at end of frame), so panels would freeze under it.
+        // Skipping one frame captures the corrected rect.
+        if (_drawnFrames > 1)
+        {
+            DrawNotesList();
+            DrawEditor();
+        }
+
+        DrawStatusBar();
 
         if (_showDemoWindow)
             ImGui.ShowDemoWindow(ref _showDemoWindow);
@@ -69,6 +86,22 @@ public sealed class MainWindow : IDisposable
             DrawAboutWindow();
     }
 
+    /// <summary>
+    /// Global shortcuts. Runs before widgets each frame; chords are checked
+    /// via ImGui so they respect modifiers and the OS keyboard layout.
+    /// </summary>
+    private void DrawShortcuts()
+    {
+        if (ImGui.IsKeyChordPressed(ImGuiKey.ModCtrl | ImGuiKey.N))
+            AddNote();
+
+        if (ImGui.IsKeyChordPressed(ImGuiKey.ModCtrl | ImGuiKey.S))
+            FlushPendingSave();
+
+        if (ImGui.IsKeyChordPressed(ImGuiKey.ModCtrl | ImGuiKey.Q))
+            Quit();
+    }
+
     private void DrawMenuBar()
     {
         if (!ImGui.BeginMainMenuBar())
@@ -76,17 +109,16 @@ public sealed class MainWindow : IDisposable
 
         if (ImGui.BeginMenu("File"))
         {
-            if (ImGui.MenuItem("New Note"))
+            if (ImGui.MenuItem("New Note", "Ctrl+N"))
                 AddNote();
+
+            if (ImGui.MenuItem("Save", "Ctrl+S"))
+                FlushPendingSave();
 
             ImGui.Separator();
 
-            if (ImGui.MenuItem("Quit", "Alt+F4"))
-            {
-                FlushPendingSave();
-                PersistSelection();
-                Environment.Exit(0);
-            }
+            if (ImGui.MenuItem("Quit", "Ctrl+Q"))
+                Quit();
 
             ImGui.EndMenu();
         }
@@ -109,21 +141,15 @@ public sealed class MainWindow : IDisposable
 
     private void DrawNotesList()
     {
-        ImGui.SetNextWindowPos(new Vector2(ImGui.GetMainViewport().WorkPos.X, ImGui.GetMainViewport().WorkPos.Y));
-        ImGui.SetNextWindowSize(new Vector2(260, ImGui.GetMainViewport().WorkSize.Y));
+        var viewport = ImGui.GetMainViewport();
+        ImGui.SetNextWindowPos(new Vector2(viewport.WorkPos.X, viewport.WorkPos.Y), ImGuiCond.FirstUseEver);
+        ImGui.SetNextWindowSize(new Vector2(SidebarWidth, viewport.WorkSize.Y - StatusHeight), ImGuiCond.FirstUseEver);
 
-        const ImGuiWindowFlags flags =
-            ImGuiWindowFlags.NoTitleBar |
-            ImGuiWindowFlags.NoResize |
-            ImGuiWindowFlags.NoMove |
-            ImGuiWindowFlags.NoCollapse |
-            ImGuiWindowFlags.NoBringToFrontOnFocus |
-            ImGuiWindowFlags.NoDocking;
+        // Genuinely dockable: no NoDocking/NoMove/NoResize pins; first placement
+        // only (ImGuiCond.FirstUseEver), afterwards imgui.ini owns the layout.
+        const ImGuiWindowFlags flags = ImGuiWindowFlags.None;
 
-        ImGui.Begin("##NotesSidebar", flags);
-
-        ImGui.TextUnformatted("Notes");
-        ImGui.Separator();
+        ImGui.Begin("Notes##sidebar", flags);
 
         if (ImGui.Button("New Note"))
             AddNote();
@@ -155,22 +181,16 @@ public sealed class MainWindow : IDisposable
     private void DrawEditor()
     {
         var viewport = ImGui.GetMainViewport();
-        ImGui.SetNextWindowPos(new Vector2(viewport.WorkPos.X + 260, viewport.WorkPos.Y));
-        ImGui.SetNextWindowSize(new Vector2(viewport.WorkSize.X - 260 - 280, viewport.WorkSize.Y));
+        ImGui.SetNextWindowPos(new Vector2(viewport.WorkPos.X + SidebarWidth, viewport.WorkPos.Y), ImGuiCond.FirstUseEver);
+        ImGui.SetNextWindowSize(new Vector2(viewport.WorkSize.X - SidebarWidth, viewport.WorkSize.Y - StatusHeight), ImGuiCond.FirstUseEver);
 
-        const ImGuiWindowFlags flags =
-            ImGuiWindowFlags.NoTitleBar |
-            ImGuiWindowFlags.NoResize |
-            ImGuiWindowFlags.NoMove |
-            ImGuiWindowFlags.NoCollapse |
-            ImGuiWindowFlags.NoBringToFrontOnFocus |
-            ImGuiWindowFlags.NoDocking;
-
-        ImGui.Begin("##Editor", flags);
+        const ImGuiWindowFlags flags = ImGuiWindowFlags.None;
 
         var note = _notes[_selectedNote];
-        ImGui.TextUnformatted(note.Title);
-        ImGui.Separator();
+
+        // Title shows the current note; the "##editor" suffix keeps a stable
+        // window id (and dock state) across note switches.
+        ImGui.Begin($"{EditorWindowTitle(note.Title)}##editor", flags);
 
         // Size the buffer to the note (with slack) instead of a fixed cap, so
         // long notes are never truncated. See docs/persistence.md.
@@ -186,33 +206,46 @@ public sealed class MainWindow : IDisposable
         ImGui.End();
     }
 
-    private void DrawStats()
+    private static string EditorWindowTitle(string title)
+    {
+        // "##" starts the id segment in an ImGui window name; strip it so a
+        // title can never change the window's identity.
+        var clean = title.Replace("##", " ").Trim();
+        return clean.Length == 0 ? "Untitled" : clean;
+    }
+
+    private void DrawStatusBar()
     {
         var viewport = ImGui.GetMainViewport();
-        ImGui.SetNextWindowPos(new Vector2(viewport.WorkPos.X + viewport.WorkSize.X - 280, viewport.WorkPos.Y));
-        ImGui.SetNextWindowSize(new Vector2(280, viewport.WorkSize.Y));
+        ImGui.SetNextWindowPos(new Vector2(viewport.WorkPos.X, viewport.WorkPos.Y + viewport.WorkSize.Y - StatusHeight));
+        ImGui.SetNextWindowSize(new Vector2(viewport.WorkSize.X, StatusHeight));
 
         const ImGuiWindowFlags flags =
             ImGuiWindowFlags.NoTitleBar |
             ImGuiWindowFlags.NoResize |
             ImGuiWindowFlags.NoMove |
             ImGuiWindowFlags.NoCollapse |
-            ImGuiWindowFlags.NoBringToFrontOnFocus |
-            ImGuiWindowFlags.NoDocking;
+            ImGuiWindowFlags.NoDocking |
+            ImGuiWindowFlags.NoScrollbar |
+            ImGuiWindowFlags.NoScrollWithMouse;
 
-        ImGui.Begin("##Stats", flags);
+        ImGui.Begin("##StatusBar", flags);
 
-        ImGui.TextUnformatted("Stats");
-        ImGui.Separator();
-        ImGui.Text($"FPS: {_fpsSmoothed:0}");
-        ImGui.Text($"Frame: {_delta * 1000.0:0.00} ms");
+        ImGui.TextUnformatted(_pendingSave is not null ? "Unsaved changes — saving…" : "All changes saved");
+        ImGui.SameLine();
+        ImGui.TextDisabled("|");
+        ImGui.SameLine();
         ImGui.Text($"Notes: {_notes.Count}");
+        ImGui.SameLine();
+        ImGui.TextDisabled("|");
+        ImGui.SameLine();
+        ImGui.Text($"FPS: {_fpsSmoothed:0}  ({_delta * 1000.0:0.0} ms)");
 
         var io = ImGui.GetIO();
-        ImGui.Separator();
-        ImGui.TextUnformatted("ImGui");
-        ImGui.Text($"Version: {ImGui.GetVersion()}");
-        ImGui.Text($"Display: {io.DisplaySize.X:0}x{io.DisplaySize.Y:0}");
+        ImGui.SameLine();
+        ImGui.TextDisabled("|");
+        ImGui.SameLine();
+        ImGui.TextUnformatted($"ImGui {ImGui.GetVersion()}  {io.DisplaySize.X:0}x{io.DisplaySize.Y:0}");
 
         ImGui.End();
     }
@@ -231,6 +264,13 @@ public sealed class MainWindow : IDisposable
     }
 
     // ------------------------------------------------------------- note actions
+
+    private void Quit()
+    {
+        FlushPendingSave();
+        PersistSelection();
+        Environment.Exit(0);
+    }
 
     private void AddNote()
     {

@@ -52,6 +52,31 @@ The range trick works because both enums declare those keys contiguously. If you
 
 > **Naming gotcha:** Silk.NET uses `Key.Left`, `Key.ControlLeft`, `Key.BackSlash`, while ImGui uses `ImGuiKey.LeftArrow`, `ImGuiKey.LeftCtrl`, `ImGuiKey.Backslash`. The names are deliberately different — check both enums when extending `MapKey`.
 
+### Clipboard
+
+Cut/copy/paste inside ImGui widgets goes through cdecl function pointers on `ImGuiPlatformIO`. `WireClipboard` installs delegates that bridge to the OS clipboard via Silk.NET's `IKeyboard.ClipboardText`:
+
+```csharp
+platformIo.Platform_GetClipboardTextFn = Marshal.GetFunctionPointerForDelegate(_getClipboardText);
+platformIo.Platform_SetClipboardTextFn = Marshal.GetFunctionPointerForDelegate(_setClipboardText);
+```
+
+The `Get` callback returns a CoTaskMem UTF-8 buffer that is freed and re-allocated on the next call (the contract ImGui expects); the `Set` callback decodes the UTF-8 pointer and assigns `IKeyboard.ClipboardText`. The delegates are stored in readonly fields so the GC can never collect them while native code still holds the function pointers. `ClipboardInteropTests` proves this mechanism against the real `libcimgui` headlessly.
+
+### Mouse cursors
+
+The backend sets `ImGuiBackendFlags.HasMouseCursors` (so ImGui expects the platform to own the OS cursor) and `UpdateMouseCursor` runs after every `ImGui.NewFrame()`:
+
+| `ImGuiMouseCursor` | `StandardCursor` |
+| --- | --- |
+| `TextInput` | `IBeam` |
+| `ResizeNS` / `ResizeEW` | `VResize` / `HResize` |
+| `ResizeNESW` / `ResizeNWSE` | `NeswResize` / `NwseResize` |
+| `ResizeAll` / `Hand` / `NotAllowed` | same names |
+| `Arrow` / anything else | `Arrow` |
+
+`None` (or `io.MouseDrawCursor`) switches `ICursor.CursorMode` to `Hidden`. Changes are diffed (`_lastAppliedCursor`) so the shape is only re-assigned when ImGui asks for a different one.
+
 ## Fonts
 
 `CreateFontsTexture` builds the default font at a DPI-aware size:

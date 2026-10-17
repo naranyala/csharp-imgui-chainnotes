@@ -32,7 +32,7 @@ private void DrawMyPanel()
 }
 ```
 
-For a fixed-layout panel like the ones already in `MainWindow`, use the flags + positioning pattern:
+For a pinned panel like the status bar in `MainWindow`, use the flags + positioning pattern:
 
 ```csharp
 private void DrawMyPanel()
@@ -46,7 +46,6 @@ private void DrawMyPanel()
         ImGuiWindowFlags.NoResize |
         ImGuiWindowFlags.NoMove |
         ImGuiWindowFlags.NoCollapse |
-        ImGuiWindowFlags.NoBringToFrontOnFocus |
         ImGuiWindowFlags.NoDocking;
 
     ImGui.Begin("##MyPanel", flags);
@@ -57,7 +56,7 @@ private void DrawMyPanel()
 
 Two things to note:
 
-- **`SetNextWindowPos`/`Size` apply only to the next `Begin`** — call them every frame, immediately before it.
+- **`SetNextWindowPos`/`Size` apply only to the next `Begin`** — call them every frame, immediately before it. Use `ImGuiCond.FirstUseEver` instead when the panel must become dockable later (always-positioned windows can't be dragged).
 - The `##` prefix gives the window an ID without showing a title. Omit it if you want a visible, draggable title bar.
 
 Then add `DrawMyPanel();` to `Draw()`.
@@ -66,10 +65,12 @@ Then add `DrawMyPanel();` to `Draw()`.
 
 `ImGuiConfigFlags.DockingEnable` is set in the controller, and `Application.DrawDockspace` hosts a dockspace filling the window.
 
-- **Fixed panel** — include `ImGuiWindowFlags.NoDocking` (as the current panels do) and pin its position. It stays where you put it.
-- **Dockable panel** — drop `NoDocking`. The user can drag its title bar into the dockspace, split, tab, and rearrange; the layout persists to `imgui.ini`.
+- **Dockable panel** (what the Notes sidebar and editor use) — drop `NoDocking`/`NoMove`/`NoResize`, give the window a real title, and position it with `ImGuiCond.FirstUseEver` so the first placement doesn't fight docking or `imgui.ini`. The user can drag its title bar into the dockspace, split, tab, and rearrange; the layout persists to `imgui.ini`. Remember the window name before `##` is display-only — keep the ID segment stable (the editor does this with `{title}##editor`).
+- **Pinned panel** (what the status bar uses) — include `ImGuiWindowFlags.NoDocking` and pin its position every frame. It stays where you put it.
 
-You can mix both: keep a pinned sidebar and make the center area dockable.
+You can mix both: keep a pinned status bar and make the sidebar/editor dockable.
+
+> Gotcha: don't place `FirstUseEver` panels on the very first frame — the viewport's `WorkPos`/`WorkSize` don't yet account for the main menu bar (the adjustment lands at end of frame), and the rect would freeze under it. `MainWindow` skips one frame before drawing the dockable panels.
 
 ## Common widgets
 

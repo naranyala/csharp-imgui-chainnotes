@@ -43,18 +43,18 @@ Debug builds are useful when developing the backend, since Silk.NET prints GLFW 
 dotnet test tests/ChainNotes.Tests -c Release
 ```
 
-The xunit suite covers the persistence layer (note store round-trips, atomic writes, settings, id slugs) without opening a window. CI runs the same command on every push (`.github/workflows/ci.yml`).
+The xunit suite covers the persistence layer (note store round-trips, atomic writes, settings, id slugs) and the platform clipboard mechanism — all without opening a window. CI runs the same command on every push (`.github/workflows/ci.yml`).
 
 ## What you should see
 
 A resizable window titled **ChainNotes** with:
 
-- A **menu bar** (File / View / Help) across the top.
-- A **left sidebar** listing sample notes, with a **New Note** button and right-click → Delete.
-- A **center editor** — a multi-line text field for the selected note.
-- A **right stats panel** showing FPS, frame time, note count, and ImGui version.
+- A **menu bar** (File / View / Help) across the top — **File** shows the shortcuts: `Ctrl+N` new note, `Ctrl+S` save, `Ctrl+Q` quit.
+- A **left "Notes" panel** listing sample notes, with a **New Note** button and right-click → Delete.
+- A **center editor** whose title bar shows the current note's title — a multi-line text field with working clipboard (cut/copy/paste).
+- A **bottom status bar**: save state (`All changes saved` / `Unsaved changes — saving…`), note count, FPS, and ImGui version.
 
-The layout is a **dockspace**: drag panel title bars to rearrange them, and the arrangement persists to `imgui.ini` in the working directory.
+The **Notes** and editor panels are genuinely dockable: drag their title bars onto the dockspace (or into each other) to rearrange, split, and tab them — the arrangement persists to `imgui.ini` in the working directory. The first run places them in the classic sidebar/editor regions; drag once to re-lay them out.
 
 Notes are real: edits save to plain `.md` files under your local data directory, and the last-opened note is restored on the next launch (see [Persistence](persistence.md)).
 

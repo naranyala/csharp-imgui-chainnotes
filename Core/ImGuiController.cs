@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Runtime.InteropServices;
 using ImGuiNET;
 using Silk.NET.Input;
 using Silk.NET.OpenGL;
@@ -30,21 +31,41 @@ public sealed unsafe class ImGuiController : IDisposable
     private readonly System.Diagnostics.Stopwatch _clock = System.Diagnostics.Stopwatch.StartNew();
     private double _lastTime;
 
+    // OS clipboard: ImGui asks the platform layer via these cdecl fn pointers.
+    // Delegates are kept as fields so the GC can't collect them while native
+    // code still holds the function pointers.
+    private readonly GetClipboardTextDelegate _getClipboardText;
+    private readonly SetClipboardTextDelegate _setClipboardText;
+    private IntPtr _clipboardBuffer; // UTF-8 copy valid until the next Get call
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate IntPtr GetClipboardTextDelegate(IntPtr userData);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate void SetClipboardTextDelegate(IntPtr userData, IntPtr textUtf8);
+
+    private ImGuiMouseCursor? _lastAppliedCursor;
+    private bool _lastCursorHidden;
+
     public ImGuiController(GL gl, IWindow window, IInputContext input)
     {
         _gl = gl;
         _window = window;
         _input = input;
+        _getClipboardText = GetClipboardTextNative;
+        _setClipboardText = SetClipboardTextNative;
 
         ImGui.CreateContext();
         var io = ImGui.GetIO();
         io.ConfigFlags |= ImGuiConfigFlags.DockingEnable;
         io.BackendFlags |= ImGuiBackendFlags.RendererHasVtxOffset;
+        io.BackendFlags |= ImGuiBackendFlags.HasMouseCursors;
         io.ConfigWindowsResizeFromEdges = true;
 
         CreateDeviceObjects();
         ApplyStyle();
         WireInput();
+        WireClipboard();
     }
 
     private static void ApplyStyle()
@@ -83,6 +104,102 @@ public sealed unsafe class ImGuiController : IDisposable
 
         _window.FocusChanged += focused => ImGui.GetIO().AddFocusEvent(focused);
     }
+
+    // --------------------------------------------------------------- clipboard
+
+    private void WireClipboard()
+    {
+        var platformIo = ImGui.GetPlatformIO();
+        platformIo.Platform_GetClipboardTextFn = Marshal.GetFunctionPointerForDelegate(_getClipboardText);
+        platformIo.Platform_SetClipboardTextFn = Marshal.GetFunctionPointerForDelegate(_setClipboardText);
+        platformIo.Platform_ClipboardUserData = IntPtr.Zero;
+    }
+
+    /// <summary>Native callback: return a UTF-8 buffer valid until the next call.</summary>
+    private IntPtr GetClipboardTextNative(IntPtr userData)
+    {
+        var text = CurrentKeyboard()?.ClipboardText ?? string.Empty;
+
+        if (_clipboardBuffer != IntPtr.Zero)
+            Marshal.FreeCoTaskMem(_clipboardBuffer);
+
+        _clipboardBuffer = Marshal.StringToCoTaskMemUTF8(text);
+        return _clipboardBuffer;
+    }
+
+    /// <summary>Native callback: ImGui passes a NUL-terminated UTF-8 pointer.</summary>
+    private void SetClipboardTextNative(IntPtr userData, IntPtr textUtf8)
+    {
+        var keyboard = CurrentKeyboard();
+        if (keyboard is null)
+            return;
+
+        keyboard.ClipboardText = textUtf8 == IntPtr.Zero
+            ? string.Empty
+            : Marshal.PtrToStringUTF8(textUtf8) ?? string.Empty;
+    }
+
+    private IKeyboard? CurrentKeyboard() =>
+        _input.Keyboards.Count > 0 ? _input.Keyboards[0] : null;
+
+    // ----------------------------------------------------------------- cursors
+
+    /// <summary>
+    /// Translates ImGui's requested cursor to the OS cursor (GLFW standard
+    /// cursors via <see cref="ICursor"/>). Mirrors <c>imgui_impl_glfw</c>:
+    /// hide on None/software draw, otherwise set the mapped shape.
+    /// </summary>
+    private void UpdateMouseCursor()
+    {
+        var io = ImGui.GetIO();
+        if ((io.ConfigFlags & ImGuiConfigFlags.NoMouseCursorChange) != 0)
+            return;
+
+        var requested = ImGui.GetMouseCursor();
+        var hidden = io.MouseDrawCursor || requested == ImGuiMouseCursor.None;
+
+        foreach (var mouse in _input.Mice)
+        {
+            if (hidden)
+            {
+                if (!_lastCursorHidden)
+                {
+                    mouse.Cursor.CursorMode = CursorMode.Hidden;
+                    _lastCursorHidden = true;
+                    _lastAppliedCursor = null;
+                }
+
+                continue;
+            }
+
+            var standard = MapCursor(requested);
+
+            if (_lastCursorHidden)
+            {
+                mouse.Cursor.CursorMode = CursorMode.Normal;
+                _lastCursorHidden = false;
+            }
+
+            if (_lastAppliedCursor != requested && mouse.Cursor.IsSupported(standard))
+            {
+                mouse.Cursor.StandardCursor = standard;
+                _lastAppliedCursor = requested;
+            }
+        }
+    }
+
+    private static StandardCursor MapCursor(ImGuiMouseCursor cursor) => cursor switch
+    {
+        ImGuiMouseCursor.TextInput => StandardCursor.IBeam,
+        ImGuiMouseCursor.ResizeAll => StandardCursor.ResizeAll,
+        ImGuiMouseCursor.ResizeNS => StandardCursor.VResize,
+        ImGuiMouseCursor.ResizeEW => StandardCursor.HResize,
+        ImGuiMouseCursor.ResizeNESW => StandardCursor.NeswResize,
+        ImGuiMouseCursor.ResizeNWSE => StandardCursor.NwseResize,
+        ImGuiMouseCursor.Hand => StandardCursor.Hand,
+        ImGuiMouseCursor.NotAllowed => StandardCursor.NotAllowed,
+        _ => StandardCursor.Arrow,
+    };
 
     private void OnKeyDown(IKeyboard keyboard, Key key, int keyCode)
     {
@@ -346,6 +463,9 @@ public sealed unsafe class ImGuiController : IDisposable
         }
 
         ImGui.NewFrame();
+
+        // io.MouseCursor was decided by NewFrame; push it to the OS.
+        UpdateMouseCursor();
     }
 
     // ----------------------------------------------------------------- render
@@ -545,6 +665,12 @@ public sealed unsafe class ImGuiController : IDisposable
 
     public void Dispose()
     {
+        if (_clipboardBuffer != IntPtr.Zero)
+        {
+            Marshal.FreeCoTaskMem(_clipboardBuffer);
+            _clipboardBuffer = IntPtr.Zero;
+        }
+
         ImGui.DestroyContext();
 
         if (_vao != 0) _gl.DeleteVertexArray(_vao);

@@ -52,12 +52,37 @@ public sealed class Application : IDisposable
         if (_window is null)
             return;
 
+        ClampWindowToMonitor(_window);
+
         _gl = _window.CreateOpenGL();
         var input = _window.CreateInput();
 
         _controller = new ImGuiController(_gl, _window, input);
         _store = new FileNoteStore(FileNoteStore.DefaultDirectory());
         _mainWindow = new MainWindow(_store);
+    }
+
+    /// <summary>
+    /// Keep the initial window inside the monitor bounds (minus slack for
+    /// title bar + taskbar). An oversized window gets clamped asynchronously
+    /// by the compositor, which would freeze bad first-run panel rects in
+    /// imgui.ini.
+    /// </summary>
+    private static void ClampWindowToMonitor(IWindow window)
+    {
+        var monitor = window.Monitor;
+        if (monitor is null)
+            return;
+
+        var bounds = monitor.Bounds;
+        const int horizontalSlack = 8;
+        const int verticalSlack = 72; // title bar + taskbar + margin
+
+        var width = Math.Min(window.Size.X, bounds.Size.X - horizontalSlack);
+        var height = Math.Min(window.Size.Y, bounds.Size.Y - verticalSlack);
+
+        if (width > 0 && height > 0 && (width != window.Size.X || height != window.Size.Y))
+            window.Size = new Vector2D<int>(width, height);
     }
 
     private void OnUpdate(double delta)

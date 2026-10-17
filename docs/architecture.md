@@ -54,7 +54,7 @@ Steps 3 and 4 are where all application UI lives. Steps 2, 5, and 6 are the back
 
 The `##` prefix on `##DockSpaceHost` gives it an ID but no visible title, and the pushed style vars (rounding/border/padding = 0) make it an invisible backdrop.
 
-> The three panels in `MainWindow` currently use `ImGuiWindowFlags.NoDocking` and fixed positions, so they behave as fixed regions. Remove that flag to let a panel join the dockspace and become freely rearrangeable.
+> **Layout:** the sidebar and editor are dockable — no `NoDocking`/`NoMove`/`NoResize` pins, first placement via `ImGuiCond.FirstUseEver` (after a one-frame warm-up so `WorkPos` accounts for the menu bar), titles on both so they can be dragged, split, and tabbed. Layout persists via `imgui.ini`. The bottom status bar stays pinned (`NoDocking` + `NoMove` + `NoResize`). There is no DockBuilder API in this ImGui binding, so the default regions are placed rather than auto-docked.
 
 ## Window options
 

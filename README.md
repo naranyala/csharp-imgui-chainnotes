@@ -13,11 +13,13 @@ dotnet run -c Release
 - OpenGL 3.3 core context via Silk.NET.Windowing / GLFW — one codebase for Linux, Windows, and macOS
 - Hand-written ImGui backend: GL renderer **and** keyboard/mouse platform layer (`ImGui.NET` 1.91)
 - Docking enabled, dark theme, DPI-aware font scaling
-- Notes shell: list / editor / stats panels + main menu bar
+- Notes shell: list / editor panels + menu bar + bottom status bar (save state, counts)
+- **Dockable** Notes/editor panels — rearrange, split, tab; layout persists to `imgui.ini`
+- Keyboard shortcuts: `Ctrl+N` new, `Ctrl+S` save, `Ctrl+Q` quit
+- Clipboard cut/copy/paste wired to the OS clipboard; OS mouse cursors (text I-beam, resize edges, …)
 - Notes persist as plain `.md` files (frontmatter + body) with atomic writes and a `.bak`; last-opened note restored on launch
 - Built-in ImGui Demo & Metrics windows (**View** menu)
-- Layout persisted to `imgui.ini`
-- xunit test suite (`dotnet test tests/ChainNotes.Tests`) + GitHub Actions CI
+- xunit test suite (99 tests, incl. headless clipboard-mechanism proof) + GitHub Actions CI
 - Native GLFW + cimgui bundled via NuGet and copied to the output automatically
 
 ## Documentation
@@ -36,7 +38,7 @@ New here? Start with **[Getting Started](docs/getting-started.md)**, then read *
 ## Planning
 
 - **[`PYRAMID-OF-INTENTS.md`](PYRAMID-OF-INTENTS.md)** — vision → mission → goals → epics; higher levels constrain lower ones
-- **[`TODOS.md`](TODOS.md)** — phased tracker (10 done / 18 open), every task tagged `[Ex/Gx]` back to the pyramid
+- **[`TODOS.md`](TODOS.md)** — phased tracker (16 done / 15 open) with a vision scoreboard; every task tagged `[Ex/Gx]` back to the pyramid
 
 ## Requirements
 
