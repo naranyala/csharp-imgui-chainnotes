@@ -18,6 +18,7 @@ public sealed class Application : IDisposable
     private GL? _gl;
     private ImGuiController? _controller;
     private MainWindow? _mainWindow;
+    private INoteStore? _store;
 
     public void Run(string[] args)
     {
@@ -55,7 +56,8 @@ public sealed class Application : IDisposable
         var input = _window.CreateInput();
 
         _controller = new ImGuiController(_gl, _window, input);
-        _mainWindow = new MainWindow();
+        _store = new FileNoteStore(FileNoteStore.DefaultDirectory());
+        _mainWindow = new MainWindow(_store);
     }
 
     private void OnUpdate(double delta)

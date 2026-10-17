@@ -19,20 +19,23 @@ Legend: `[ ]` open · `[x]` done · `[~]` in progress / blocked (note why).
 - [x] `[E6/G6]` Docs set + build verified: `README.md` + `docs/` (getting
       started, architecture, backend, building UI, troubleshooting); 0 build
       errors/warnings; app smoke-tested to a clean run
-- [ ] `[E1/G1]` `NoteStore` abstraction behind today's in-memory
-      `List<Note>` in `UI/MainWindow.cs`; UI depends only on the interface
-- [ ] `[E1/G1]` Plain-file persistence: load notes at startup, save on change
-      (debounced) + on exit; pick an on-disk format (single JSON manifest vs.
-      one `.md` file per note) and record the choice in `docs/`
-- [ ] `[E1/G1]` Safe writes: write to a temp file + atomic rename so a crash
-      mid-save can't corrupt the store; keep one `.bak` of the previous state
-- [ ] `[E1/G1]` Persist selection + last-opened note across restarts (only
-      layout is saved today, via `imgui.ini`)
-- [ ] `[E2/G2]` Remove the 16 KB editor cap (`InputTextMultiline(..., 16 *
-      1024, ...)`) — size the buffer to the note or stream from the store
-- [ ] `[E6/G6]` Test project (`dotnet new xunit`) with the first contract
-      tests: store save→load round-trip, atomic-write failure path, editor
-      commit-on-change
+- [x] `[E1/G1]` `NoteStore` abstraction: `Core/INoteStore.cs` behind the former
+      in-memory `List<Note>`; UI takes the interface via constructor injection
+      from `Application.OnLoad` and has no path/format knowledge
+- [x] `[E1/G1]` Plain-file persistence: **one `.md` file per note** with a
+      frontmatter header (chosen over a single JSON manifest; rationale +
+      format rules recorded in `docs/persistence.md`); notes load at startup,
+      edits save debounced (0.4 s) + flushed on note switch / quit / exit
+- [x] `[E1/G1]` Safe writes: temp file + atomic rename
+      (`FileNoteStore.WriteAtomic`) so a crash mid-save can't corrupt the
+      store; one `.bak` of the previous state per note
+- [x] `[E1/G1]` Persist selection + last-opened note via `settings.json`
+      (layout still saved separately by `imgui.ini`)
+- [x] `[E2/G2]` Remove the 16 KB editor cap — `InputTextMultiline` buffer is
+      now sized to the note (64 KB floor + 8 KB UTF-8 slack)
+- [x] `[E6/G6]` Test project (`tests/ChainNotes.Tests`, xunit, 48 tests):
+      id slug/collision contract, store save→load round-trip, `.bak`/temp/
+      unsafe-file handling, frontmatter-less files, settings fallback, delete
 
 ## P1 — Make it trustworthy and pleasant
 
@@ -62,8 +65,9 @@ Legend: `[ ]` open · `[x]` done · `[~]` in progress / blocked (note why).
       results as a panel
 - [ ] `[E5/G3]` Light grouping model (tags **or** folders — pick one) with
       persistence, replacing the single flat list once it grows
-- [ ] `[E6/G6]` CI on push (GitHub Actions or equivalent): `dotnet build`
-      + `dotnet test`, warnings as errors
+- [x] `[E6/G6]` CI on push (GitHub Actions): `.github/workflows/ci.yml` —
+      restore + `dotnet build` + `dotnet test` on ubuntu-latest, warnings as
+      errors, on push to `main` and on PRs
 
 ## P2 — Shippable
 

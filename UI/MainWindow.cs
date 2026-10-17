@@ -1,16 +1,14 @@
 using System.Numerics;
+using System.Text;
+using ChainNotes.Core;
 using ImGuiNET;
 
 namespace ChainNotes.UI;
 
 public sealed class MainWindow : IDisposable
 {
-    private readonly List<Note> _notes =
-    [
-        new("Welcome", "Welcome to ChainNotes!\n\nThis is a Dear ImGui + Silk.NET starter app.\n\nLeft panel: note list\nCenter: editor\nRight: stats"),
-        new("Roadmap", "- [x] Window + OpenGL 3.3 context\n- [x] ImGui docking + input\n- [ ] Persistence\n- [ ] Themes"),
-        new("Scratchpad", "Type here..."),
-    ];
+    private readonly INoteStore _store;
+    private readonly List<Note> _notes;
 
     private int _selectedNote;
     private bool _showDemoWindow;
@@ -20,10 +18,41 @@ public sealed class MainWindow : IDisposable
     private double _fpsSmoothed;
     private string _editorText = string.Empty;
 
+    private const uint MinEditorBufferBytes = 64 * 1024;
+    private const uint EditorBufferSlackBytes = 8 * 1024;
+
+    /// <summary>Editor edits are coalesced so typing doesn't write once per keystroke.</summary>
+    private const double SaveDebounceSeconds = 0.4;
+
+    private Note? _pendingSave;
+    private double _timeSinceEdit;
+
+    public MainWindow(INoteStore store)
+    {
+        _store = store;
+        _notes = store.Load().ToList();
+
+        if (_notes.Count == 0)
+        {
+            _notes = CreateSeedNotes();
+            _store.SaveAll(_notes);
+        }
+
+        _selectedNote = IndexOfNote(store.LoadSettings().SelectedNoteId);
+        LoadSelectedIntoBuffer();
+    }
+
     public void Update(double delta)
     {
         _delta = delta;
         _fpsSmoothed = _fpsSmoothed <= 0 ? 1.0 / Math.Max(delta, 1e-6) : _fpsSmoothed * 0.95 + (1.0 / Math.Max(delta, 1e-6)) * 0.05;
+
+        if (_pendingSave is not null)
+        {
+            _timeSinceEdit += delta;
+            if (_timeSinceEdit >= SaveDebounceSeconds)
+                FlushPendingSave();
+        }
     }
 
     public void Draw()
@@ -57,7 +86,11 @@ public sealed class MainWindow : IDisposable
             ImGui.Separator();
 
             if (ImGui.MenuItem("Quit", "Alt+F4"))
+            {
+                FlushPendingSave();
+                PersistSelection();
                 Environment.Exit(0);
+            }
 
             ImGui.EndMenu();
         }
@@ -108,18 +141,13 @@ public sealed class MainWindow : IDisposable
             {
                 _selectedNote = i;
                 LoadSelectedIntoBuffer();
+                PersistSelection();
             }
 
             if (ImGui.BeginPopupContextItem($"note_ctx_{i}"))
             {
                 if (ImGui.MenuItem("Delete") && _notes.Count > 1)
-                {
-                    _notes.RemoveAt(i);
-                    _selectedNote = Math.Clamp(_selectedNote, 0, _notes.Count - 1);
-                    LoadSelectedIntoBuffer();
-                    ImGui.EndPopup();
-                    break;
-                }
+                    DeleteNoteAt(i);
 
                 ImGui.EndPopup();
             }
@@ -148,8 +176,18 @@ public sealed class MainWindow : IDisposable
         ImGui.TextUnformatted(note.Title);
         ImGui.Separator();
 
-        if (ImGui.InputTextMultiline("##note_body", ref _editorText, 16 * 1024, new Vector2(-1, -1)))
+        // Size the buffer to the note (with slack) instead of a fixed cap, so
+        // long notes are never truncated. See docs/persistence.md.
+        var bufferBytes = (uint)Math.Max(
+            MinEditorBufferBytes,
+            (long)Encoding.UTF8.GetByteCount(_editorText) + EditorBufferSlackBytes);
+
+        if (ImGui.InputTextMultiline("##note_body", ref _editorText, bufferBytes, new Vector2(-1, -1)))
+        {
             note.Body = _editorText;
+            _pendingSave = note;
+            _timeSinceEdit = 0;
+        }
 
         ImGui.End();
     }
@@ -198,26 +236,93 @@ public sealed class MainWindow : IDisposable
         ImGui.End();
     }
 
+    // ------------------------------------------------------------- note actions
+
     private void AddNote()
     {
-        _notes.Add(new Note($"Note {_notes.Count + 1}", string.Empty));
+        var title = $"Note {_notes.Count + 1}";
+        var id = NoteId.Allocate(title, _notes.Select(n => n.Id));
+        var note = new Note(id, title, string.Empty);
+
+        _notes.Add(note);
+        _store.Save(note);
+
         _selectedNote = _notes.Count - 1;
         LoadSelectedIntoBuffer();
+        PersistSelection();
+    }
+
+    private void DeleteNoteAt(int index)
+    {
+        var note = _notes[index];
+        _notes.RemoveAt(index);
+
+        if (_pendingSave == note)
+            _pendingSave = null;
+        else
+            FlushPendingSave();
+
+        _store.Delete(note.Id);
+
+        _selectedNote = Math.Clamp(_selectedNote, 0, _notes.Count - 1);
+        LoadSelectedIntoBuffer();
+        PersistSelection();
     }
 
     private void LoadSelectedIntoBuffer()
     {
+        // Commit any debounced edit before the selection moves away from it.
+        FlushPendingSave();
+
+        if (_notes.Count == 0)
+        {
+            _editorText = string.Empty;
+            return;
+        }
+
+        _selectedNote = Math.Clamp(_selectedNote, 0, _notes.Count - 1);
         _editorText = _notes[_selectedNote].Body;
     }
 
-    public void Dispose()
+    private void FlushPendingSave()
     {
-        // nothing to release yet
+        if (_pendingSave is null)
+            return;
+
+        _store.Save(_pendingSave);
+        _pendingSave = null;
+        _timeSinceEdit = 0;
     }
 
-    private sealed class Note(string title, string body)
+    private void PersistSelection()
     {
-        public string Title { get; } = title;
-        public string Body { get; set; } = body;
+        var settings = _store.LoadSettings();
+        settings.SelectedNoteId = _notes.Count == 0 ? null : _notes[_selectedNote].Id;
+        _store.SaveSettings(settings);
+    }
+
+    private int IndexOfNote(string? id)
+    {
+        if (string.IsNullOrEmpty(id))
+            return 0;
+
+        var index = _notes.FindIndex(n => n.Id == id);
+        return index >= 0 ? index : 0;
+    }
+
+    private static List<Note> CreateSeedNotes() =>
+    [
+        new(NoteId.Slugify("Welcome"), "Welcome",
+            "Welcome to ChainNotes!\n\nThis is a Dear ImGui + Silk.NET starter app.\n\nLeft panel: note list\nCenter: editor\nRight: stats"),
+        new(NoteId.Slugify("Roadmap"), "Roadmap",
+            "- [x] Window + OpenGL 3.3 context\n- [x] ImGui docking + input\n- [x] Persistence\n- [ ] Themes"),
+        new(NoteId.Slugify("Scratchpad"), "Scratchpad", "Type here..."),
+    ];
+
+    public void Dispose()
+    {
+        // Flush on exit so nothing typed in the last debounce window is lost.
+        FlushPendingSave();
+        PersistSelection();
     }
 }

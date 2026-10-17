@@ -14,8 +14,10 @@ dotnet run -c Release
 - Hand-written ImGui backend: GL renderer **and** keyboard/mouse platform layer (`ImGui.NET` 1.91)
 - Docking enabled, dark theme, DPI-aware font scaling
 - Notes shell: list / editor / stats panels + main menu bar
+- Notes persist as plain `.md` files (frontmatter + body) with atomic writes and a `.bak`; last-opened note restored on launch
 - Built-in ImGui Demo & Metrics windows (**View** menu)
 - Layout persisted to `imgui.ini`
+- xunit test suite (`dotnet test tests/ChainNotes.Tests`) + GitHub Actions CI
 - Native GLFW + cimgui bundled via NuGet and copied to the output automatically
 
 ## Documentation
@@ -26,6 +28,7 @@ dotnet run -c Release
 | **[Architecture](docs/architecture.md)** | Project layout, frame loop, dockspace, native-lib copy target |
 | **[ImGui Backend](docs/imgui-backend.md)** | How `ImGuiController` translates input and renders with OpenGL |
 | **[Building Your UI](docs/building-ui.md)** | Adding panels, docking, widgets, fonts, styling |
+| **[Persistence](docs/persistence.md)** | `INoteStore`, the `.md` format, atomic writes, save timing |
 | **[Troubleshooting](docs/troubleshooting.md)** | Launch failures, Wayland/X11, API gotchas |
 
 New here? Start with **[Getting Started](docs/getting-started.md)**, then read **[Architecture](docs/architecture.md)**.
@@ -33,7 +36,7 @@ New here? Start with **[Getting Started](docs/getting-started.md)**, then read *
 ## Planning
 
 - **[`PYRAMID-OF-INTENTS.md`](PYRAMID-OF-INTENTS.md)** — vision → mission → goals → epics; higher levels constrain lower ones
-- **[`TODOS.md`](TODOS.md)** — phased tracker (3 done / 25 open), every task tagged `[Ex/Gx]` back to the pyramid
+- **[`TODOS.md`](TODOS.md)** — phased tracker (10 done / 18 open), every task tagged `[Ex/Gx]` back to the pyramid
 
 ## Requirements
 
@@ -50,8 +53,13 @@ App/
   Application.cs         Window, GL context, frame loop, dockspace host
 Core/
   ImGuiController.cs     ImGui <-> Silk.NET backend (renderer + input)
+  Note.cs / NoteId.cs    Note model + pure title→id slug helpers
+  INoteStore.cs          Persistence contract the UI depends on
+  FileNoteStore.cs       One .md per note + settings.json, atomic writes
 UI/
-  MainWindow.md          Application UI (notes panels, menus, stats)
+  MainWindow.cs          Application UI (notes panels, menus, stats)
+tests/
+  ChainNotes.Tests/      xunit contract tests for the store and ids
 docs/                    Detailed documentation (start here)
 ```
 

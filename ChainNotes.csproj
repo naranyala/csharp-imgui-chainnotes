@@ -18,6 +18,14 @@
     <PackageReference Include="Silk.NET.Windowing" Version="2.23.0" />
   </ItemGroup>
 
+  <!-- Test sources live under this directory but belong to their own project. -->
+  <ItemGroup>
+    <Compile Remove="tests/**" />
+    <Content Remove="tests/**" />
+    <EmbeddedResource Remove="tests/**" />
+    <None Remove="tests/**" />
+  </ItemGroup>
+
   <!--
     Silk.NET resolves native libraries (GLFW, cimgui) from the app base directory first.
     Copy the runtime-specific native libs into the output root so the app launches even when

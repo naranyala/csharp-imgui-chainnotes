@@ -37,6 +37,14 @@ dotnet run -c Debug
 
 Debug builds are useful when developing the backend, since Silk.NET prints GLFW load failures to the console in `DEBUG`.
 
+## Test
+
+```bash
+dotnet test tests/ChainNotes.Tests -c Release
+```
+
+The xunit suite covers the persistence layer (note store round-trips, atomic writes, settings, id slugs) without opening a window. CI runs the same command on every push (`.github/workflows/ci.yml`).
+
 ## What you should see
 
 A resizable window titled **ChainNotes** with:
@@ -47,6 +55,8 @@ A resizable window titled **ChainNotes** with:
 - A **right stats panel** showing FPS, frame time, note count, and ImGui version.
 
 The layout is a **dockspace**: drag panel title bars to rearrange them, and the arrangement persists to `imgui.ini` in the working directory.
+
+Notes are real: edits save to plain `.md` files under your local data directory, and the last-opened note is restored on the next launch (see [Persistence](persistence.md)).
 
 Open **View → Dear ImGui Demo** to browse the full ImGui widget gallery — the fastest way to discover what's available.
 
@@ -65,5 +75,6 @@ A successful build prints a `Copied native libs (N file(s)) ...` message — tha
 
 - [Architecture](architecture.md) — how the window, frame loop, and ImGui backend fit together.
 - [ImGui backend](imgui-backend.md) — details of the renderer and input layer.
+- [Persistence](persistence.md) — how notes are stored on disk and how to swap the backend.
 - [Building your UI](building-ui.md) — adding panels, fonts, and styling.
 - [Troubleshooting](troubleshooting.md) — fixes for launch and rendering problems.

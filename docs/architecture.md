@@ -10,8 +10,15 @@ App/
   Application.cs         Window creation, GL context, frame loop, dockspace host
 Core/
   ImGuiController.cs     ImGui <-> Silk.NET backend (OpenGL renderer + input)
+  Note.cs                Note model (Id, Title, Body)
+  NoteId.cs              Pure slug/id helpers (title → file-safe id)
+  INoteStore.cs          Persistence contract the UI depends on
+  FileNoteStore.cs       One .md per note + settings.json, atomic writes
+  NoteSettings.cs        Persisted app settings (last-selected note)
 UI/
   MainWindow.cs          Application UI (notes panels, menus, stats)
+tests/
+  ChainNotes.Tests/      xunit contract tests for the store and ids
 ```
 
 ## The frame loop
@@ -57,6 +64,10 @@ Configured in `Application.Run`:
 - **GraphicsAPI**: OpenGL, Core profile, Forward-compatible, **version 3.3**.
 
 Forward-compatible core 3.3 is the most widely supported baseline across Linux/Windows/macOS. If you need newer GL features, bump `APIVersion` here — but you must also raise the `#version` in the shaders inside `ImGuiController`.
+
+## Persistence
+
+`Application.OnLoad` constructs one `FileNoteStore` (per-user data directory) and injects it into `MainWindow`, which loads notes at startup and saves through the `INoteStore` interface — the UI has no file-path or format knowledge. Note files are plain Markdown with a small frontmatter header; writes are atomic (temp file + rename) and keep one `.bak`. The last-selected note survives restarts via `settings.json`. Full details: [Persistence](persistence.md).
 
 ## The native library copy target
 
