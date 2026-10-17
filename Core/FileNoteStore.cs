@@ -177,17 +177,25 @@ public sealed class FileNoteStore : INoteStore
     {
         var text = File.ReadAllText(path);
 
-        if (!TryParseFrontMatter(text, out var title, out var body))
+        if (TryParseFrontMatter(text, out var title, out var body))
         {
-            // A hand-written .md with no frontmatter: derive a readable title
-            // from the id and keep every byte as the body.
-            title = Humanize(id);
-            body = text;
+            // Header present but title missing/blank: derive a readable title.
+            if (string.IsNullOrWhiteSpace(title))
+                title = Humanize(id);
+
+            return new Note(id, title, body);
         }
 
-        return new Note(id, title, body);
+        // A hand-written .md with no frontmatter: derive a readable title
+        // from the id and keep every byte as the body.
+        return new Note(id, Humanize(id), text);
     }
 
+    /// <summary>
+    /// Parses a leading <c>---</c> header block. Returns false only when the
+    /// opening delimiter is absent; a header without a title key still counts
+    /// (the body is whatever follows the closing delimiter).
+    /// </summary>
     private static bool TryParseFrontMatter(string text, out string title, out string body)
     {
         title = string.Empty;
@@ -198,7 +206,6 @@ public sealed class FileNoteStore : INoteStore
         if (!string.Equals(reader.ReadLine()?.TrimEnd('\r'), FrontMatterDelimiter, StringComparison.Ordinal))
             return false;
 
-        var foundTitle = false;
         string? line;
         while ((line = reader.ReadLine()) is not null)
         {
@@ -212,13 +219,12 @@ public sealed class FileNoteStore : INoteStore
                 if (value.StartsWith(' '))
                     value = value[1..];
                 title = value;
-                foundTitle = true;
             }
         }
 
         // Whatever remains after the closing delimiter is the body verbatim.
         body = reader.ReadToEnd();
-        return foundTitle;
+        return true;
     }
 
     private static string Humanize(string id) =>

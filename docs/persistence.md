@@ -27,7 +27,7 @@ Alternatives considered when this was built:
 | Single JSON manifest | Rejected — opaque to users and other tools; every save rewrites the whole store; a corrupt byte loses all notes. |
 | **One `.md` file per note** | **Chosen** — files the user owns, readable/editable in any editor, one bad file can't take down the rest, natural fit for a future import/export story. |
 
-Each note is stored as `notes/<id>.md`, where `<id>` is a stable slug derived from the title once at creation (`NoteId.Allocate` — `My Note!` → `my-note`, collisions get `-2`, `-3`, …). The id becomes the filename and the identity used for selection persistence; renaming a title later does not move the file.
+Each note is stored as `notes/<id>.md`, where `<id>` is a stable slug derived from the title once at creation (`NoteId.Allocate` — `My Note!` → `my-note`, collisions get `-2`, `-3`, …; slugs are capped at 80 chars so filenames stay under filesystem limits). The id becomes the filename and the identity used for selection persistence; renaming a title later does not move the file.
 
 ### File format
 
@@ -45,6 +45,7 @@ Rules the parser (`FileNoteStore.ParseFile`) guarantees:
 - **Body is verbatim.** Everything after the closing `---` line is the body, byte for byte — a body may itself start with `---`.
 - **Title is one line.** Stray newlines in a title are collapsed to spaces so the header can never break.
 - **Unknown frontmatter keys are ignored**, so extra metadata can be added later without breaking old files.
+- **A header without a `title:` key still parses**: the title is derived from the id and the body is whatever follows the closing `---`.
 - **A `.md` file without frontmatter still loads**: the title is derived from the id (`scratch-note` → `scratch note`) and the entire file becomes the body. Hand-written files just work.
 - **Only exact `.md` files load.** `note.md.bak`, `note.md.tmp`, and ids with unsafe characters (spaces, path separators) are skipped, and ids are validated (`NoteId.IsSafe`) before being joined with the directory path — a tampered filename can't escape the store directory.
 
@@ -102,4 +103,4 @@ _store = new FileNoteStore(FileNoteStore.DefaultDirectory());
 _mainWindow = new MainWindow(_store);
 ```
 
-Contract tests live in `tests/ChainNotes.Tests` (`dotnet test tests/ChainNotes.Tests`) and cover: slug generation/collision, save→load round-trip (including empty bodies and `---`-leading bodies), `.bak` creation, frontmatter-less files, unsafe/backup/temp file skipping, settings round-trip and corruption fallback, and delete.
+Contract tests live in `tests/ChainNotes.Tests` (`dotnet test tests/ChainNotes.Tests`, 95 tests) and cover: slug generation, collision suffixes and length caps; editor buffer sizing (UTF-8 multibyte/emoji); selection restore; first-run seed notes; save→load round-trip (CRLF, emoji, 1 MB bodies, empty bodies, `---`-leading bodies, BOM, Windows-authored headers); `.bak` creation; frontmatter-less files and headers without a `title:` key; unsafe/backup/temp file skipping; sort order; id stability across renames; settings round-trip, forward-compatibility and corruption fallback; delete and id reuse.

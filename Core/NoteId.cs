@@ -11,9 +11,17 @@ public static class NoteId
     public const string Fallback = "note";
 
     /// <summary>
+    /// Caps slugs so filenames stay well under the common 255-byte per
+    /// component limit even after UTF-8 expansion and a "-NN" collision
+    /// suffix (most filesystems count bytes, not chars).
+    /// </summary>
+    public const int MaxSlugLength = 80;
+
+    /// <summary>
     /// Lowercases the title and collapses every run of non-alphanumeric
     /// characters into a single '-'. Returns <see cref="Fallback"/> when the
-    /// title yields nothing usable (e.g. all punctuation).
+    /// title yields nothing usable (e.g. all punctuation or emoji). The result
+    /// is truncated to <see cref="MaxSlugLength"/> chars and never ends in '-'.
     /// </summary>
     public static string Slugify(string? title)
     {
@@ -38,6 +46,9 @@ public static class NoteId
         }
 
         var slug = sb.ToString().Trim('-');
+        if (slug.Length > MaxSlugLength)
+            slug = slug[..MaxSlugLength].TrimEnd('-');
+
         return slug.Length == 0 ? Fallback : slug;
     }
 

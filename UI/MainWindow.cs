@@ -1,5 +1,4 @@
 using System.Numerics;
-using System.Text;
 using ChainNotes.Core;
 using ImGuiNET;
 
@@ -18,9 +17,6 @@ public sealed class MainWindow : IDisposable
     private double _fpsSmoothed;
     private string _editorText = string.Empty;
 
-    private const uint MinEditorBufferBytes = 64 * 1024;
-    private const uint EditorBufferSlackBytes = 8 * 1024;
-
     /// <summary>Editor edits are coalesced so typing doesn't write once per keystroke.</summary>
     private const double SaveDebounceSeconds = 0.4;
 
@@ -34,11 +30,11 @@ public sealed class MainWindow : IDisposable
 
         if (_notes.Count == 0)
         {
-            _notes = CreateSeedNotes();
+            _notes = DefaultNotes.CreateDefaults();
             _store.SaveAll(_notes);
         }
 
-        _selectedNote = IndexOfNote(store.LoadSettings().SelectedNoteId);
+        _selectedNote = NoteSelection.Resolve(_notes, store.LoadSettings().SelectedNoteId);
         LoadSelectedIntoBuffer();
     }
 
@@ -178,9 +174,7 @@ public sealed class MainWindow : IDisposable
 
         // Size the buffer to the note (with slack) instead of a fixed cap, so
         // long notes are never truncated. See docs/persistence.md.
-        var bufferBytes = (uint)Math.Max(
-            MinEditorBufferBytes,
-            (long)Encoding.UTF8.GetByteCount(_editorText) + EditorBufferSlackBytes);
+        var bufferBytes = EditorBufferSize.RequiredBytes(_editorText);
 
         if (ImGui.InputTextMultiline("##note_body", ref _editorText, bufferBytes, new Vector2(-1, -1)))
         {
@@ -300,24 +294,6 @@ public sealed class MainWindow : IDisposable
         settings.SelectedNoteId = _notes.Count == 0 ? null : _notes[_selectedNote].Id;
         _store.SaveSettings(settings);
     }
-
-    private int IndexOfNote(string? id)
-    {
-        if (string.IsNullOrEmpty(id))
-            return 0;
-
-        var index = _notes.FindIndex(n => n.Id == id);
-        return index >= 0 ? index : 0;
-    }
-
-    private static List<Note> CreateSeedNotes() =>
-    [
-        new(NoteId.Slugify("Welcome"), "Welcome",
-            "Welcome to ChainNotes!\n\nThis is a Dear ImGui + Silk.NET starter app.\n\nLeft panel: note list\nCenter: editor\nRight: stats"),
-        new(NoteId.Slugify("Roadmap"), "Roadmap",
-            "- [x] Window + OpenGL 3.3 context\n- [x] ImGui docking + input\n- [x] Persistence\n- [ ] Themes"),
-        new(NoteId.Slugify("Scratchpad"), "Scratchpad", "Type here..."),
-    ];
 
     public void Dispose()
     {

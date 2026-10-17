@@ -33,9 +33,11 @@ Legend: `[ ]` open · `[x]` done · `[~]` in progress / blocked (note why).
       (layout still saved separately by `imgui.ini`)
 - [x] `[E2/G2]` Remove the 16 KB editor cap — `InputTextMultiline` buffer is
       now sized to the note (64 KB floor + 8 KB UTF-8 slack)
-- [x] `[E6/G6]` Test project (`tests/ChainNotes.Tests`, xunit, 48 tests):
-      id slug/collision contract, store save→load round-trip, `.bak`/temp/
-      unsafe-file handling, frontmatter-less files, settings fallback, delete
+- [x] `[E6/G6]` Test project (`tests/ChainNotes.Tests`, xunit, 95 tests):
+      id slug/collision/length-cap contract, editor buffer sizing (UTF-8),
+      selection restore, seed notes, store save→load round-trip (CRLF, emoji,
+      1 MB, BOM, Windows headers), `.bak`/temp/unsafe-file handling,
+      frontmatter-less files, settings fallback + forward-compat, delete
 
 ## P1 — Make it trustworthy and pleasant
 

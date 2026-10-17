@@ -229,6 +229,197 @@ public sealed class FileNoteStoreTests : IDisposable
         Assert.Null(settings.SelectedNoteId);
     }
 
+    [Fact]
+    public void Settings_UnknownJsonFields_AreIgnoredForForwardCompatibility()
+    {
+        Directory.CreateDirectory(_dir.Path);
+        File.WriteAllText(
+            Path.Combine(_dir.Path, "settings.json"),
+            "{\"selectedNoteId\":\"x\",\"futureOption\":42,\"theme\":\"dark\"}");
+
+        Assert.Equal("x", _store.LoadSettings().SelectedNoteId);
+    }
+
+    [Fact]
+    public void Settings_NullSelection_RoundTrips()
+    {
+        _store.SaveSettings(new NoteSettings());
+
+        Assert.Null(_store.LoadSettings().SelectedNoteId);
+    }
+
+    [Fact]
+    public void Save_PreservesCrLfAndTrailingNewlines()
+    {
+        const string body = "line one\r\nline two\r\n\r\n";
+
+        _store.Save(new Note("crlf", "CRLF", body));
+
+        Assert.Equal(body, Assert.Single(_store.Load()).Body);
+    }
+
+    [Fact]
+    public void Save_PreservesMultibyteBody()
+    {
+        const string body = "emoji 🎉🚀 and ünïcode café — exact round trip";
+
+        _store.Save(new Note("unicode", "Unicode", body));
+
+        Assert.Equal(body, Assert.Single(_store.Load()).Body);
+    }
+
+    [Fact]
+    public void RoundTripsMegabyteBody()
+    {
+        var body = new System.Text.StringBuilder(1_048_576 + 2048);
+        for (var i = 0; i < 1000; i++)
+            body.Append('x', 1000).Append('\n');
+
+        _store.Save(new Note("huge", "Huge", body.ToString()));
+
+        Assert.Equal(body.ToString(), Assert.Single(_store.Load()).Body);
+    }
+
+    [Fact]
+    public void SaveAll_EmptyEnumerable_IsNoOp()
+    {
+        _store.SaveAll([]);
+
+        Assert.Empty(_store.Load());
+    }
+
+    [Fact]
+    public void Save_NullNote_Throws() =>
+        Assert.Throws<ArgumentNullException>(() => _store.Save(null!));
+
+    [Fact]
+    public void Delete_ThenRecreateSameId_StartsFresh()
+    {
+        _store.Save(new Note("reborn", "Old", "old"));
+        _store.Delete("reborn");
+        _store.Save(new Note("reborn", "New", "new"));
+
+        var loaded = Assert.Single(_store.Load());
+        Assert.Equal("New", loaded.Title);
+        Assert.Equal("new", loaded.Body);
+        Assert.False(File.Exists(Path.Combine(_dir.Path, "reborn.md.bak")));
+    }
+
+    [Fact]
+    public void Save_TitleChange_KeepsIdAndSingleFile()
+    {
+        _store.Save(new Note("roadmap", "Roadmap", "body"));
+        _store.Save(new Note("roadmap", "My Roadmap", "body"));
+
+        var files = Directory.GetFiles(_dir.Path, "*.md");
+        var loaded = Assert.Single(_store.Load());
+
+        Assert.Single(files);
+        Assert.Equal("roadmap", loaded.Id);
+        Assert.Equal("My Roadmap", loaded.Title);
+    }
+
+    [Fact]
+    public void Load_SortsByTitleCaseInsensitive()
+    {
+        _store.SaveAll(
+        [
+            new Note("c", "banana", ""),
+            new Note("a", "Apple", ""),
+            new Note("b", "cherry", ""),
+        ]);
+
+        var titles = _store.Load().Select(n => n.Title).ToList();
+
+        Assert.Equal(new[] { "Apple", "banana", "cherry" }, titles);
+    }
+
+    [Fact]
+    public void Load_DuplicateTitles_BothSurviveUnderDistinctIds()
+    {
+        _store.SaveAll(
+        [
+            new Note("meeting-1", "Meeting", "first"),
+            new Note("meeting-2", "Meeting", "second"),
+        ]);
+
+        var notes = _store.Load();
+
+        Assert.Equal(2, notes.Count);
+        Assert.Contains(notes, n => n.Id == "meeting-1" && n.Body == "first");
+        Assert.Contains(notes, n => n.Id == "meeting-2" && n.Body == "second");
+    }
+
+    [Fact]
+    public void Load_WindowsLineEndingsInFrontMatter_Parses()
+    {
+        Directory.CreateDirectory(_dir.Path);
+        File.WriteAllText(
+            Path.Combine(_dir.Path, "win.md"),
+            "---\r\ntitle: Win\r\n---\r\nbody line");
+
+        var loaded = Assert.Single(_store.Load());
+
+        Assert.Equal("Win", loaded.Title);
+        Assert.Equal("body line", loaded.Body);
+    }
+
+    [Fact]
+    public void Load_FileWithUtf8Bom_ParsesFrontMatter()
+    {
+        Directory.CreateDirectory(_dir.Path);
+        File.WriteAllText(
+            Path.Combine(_dir.Path, "bom.md"),
+            "---\ntitle: Bom\n---\nbody",
+            new System.Text.UTF8Encoding(true));
+
+        var loaded = Assert.Single(_store.Load());
+
+        Assert.Equal("Bom", loaded.Title);
+        Assert.Equal("body", loaded.Body);
+    }
+
+    [Fact]
+    public void Load_TitleLookingLikeFrontMatterKey_DoesNotConfuseParser()
+    {
+        Directory.CreateDirectory(_dir.Path);
+        File.WriteAllText(
+            Path.Combine(_dir.Path, "tricky.md"),
+            "---\ntitle: title: not a second key\n---\nbody");
+
+        var loaded = Assert.Single(_store.Load());
+
+        Assert.Equal("title: not a second key", loaded.Title);
+        Assert.Equal("body", loaded.Body);
+    }
+
+    [Fact]
+    public void Load_FrontMatterWithoutTitleKey_FallsBackToIdHumanization()
+    {
+        Directory.CreateDirectory(_dir.Path);
+        File.WriteAllText(
+            Path.Combine(_dir.Path, "no-title.md"),
+            "---\nother: value\n---\nbody");
+
+        var loaded = Assert.Single(_store.Load());
+
+        Assert.Equal("no title", loaded.Title);
+        Assert.Equal("body", loaded.Body);
+    }
+
+    [Fact]
+    public void Save_ThenLoad_Twice_IsStable()
+    {
+        _store.Save(new Note("stable", "Stable", "content"));
+        var first = _store.Load();
+        var second = _store.Load();
+
+        Assert.Equal(first.Count, second.Count);
+        Assert.Equal(first[0].Id, second[0].Id);
+        Assert.Equal(first[0].Title, second[0].Title);
+        Assert.Equal(first[0].Body, second[0].Body);
+    }
+
     private sealed class TempDir : IDisposable
     {
         public string Path { get; } =
